@@ -1,16 +1,18 @@
 ---
 name: skill-manager
-description: Search and install agent skills and plugins. For any skill-manager-managed unit (skill or plugin), MCP tools and CLI tools are resolved transitively — CLI tools land under $SKILL_MANAGER_HOME/bin/cli/ (resolve absolute paths via env.sh), and MCP tools are registered with the virtual-mcp-gateway, which is then how you manage, deploy, and invoke them (browse_mcp_servers / describe_mcp_server / deploy_mcp_server with init params and secrets / browse_active_tools / search_tools / describe_tool / invoke_tool). Plugins additionally register with Claude/Codex via their CLIs through a skill-manager-owned local marketplace, so harness hooks/commands actually load. Identify skill-manager-managed units with `skill-manager list`. Use whenever the user asks to find, add, remove, inspect, sync, or upgrade a skill or plugin, or to manage / deploy / invoke an MCP tool that came from one.
+description: 'Search, install, bind, sync, and remove skill-manager-managed units: skills, plugins, doc-repos, and harnesses. CLI tools resolve transitively into $SKILL_MANAGER_HOME/bin/cli/ (use env.sh for absolute paths); MCP tools register with the virtual-mcp-gateway; plugins register with Claude/Codex through the local marketplace; doc-repos bind markdown sources into project CLAUDE.md / AGENTS.md via tracked copies; harnesses compose skills, plugins, doc-repos, and MCP tool selections into reusable agent/project instances. Use whenever the user asks to find, add, remove, inspect, bind, unbind, instantiate, sync, or upgrade one of those units, or to manage / deploy / invoke an MCP tool that came from one.'
 ---
 
 # skill-manager
 
-You can **discover and install** skills, plugins, and MCP servers on demand using the `skill-manager` CLI. Treat this as your package manager for agent capabilities. Skills and plugins are the two unit kinds; everywhere below "unit" means either.
+You can **discover, install, bind, and instantiate** agent capability units on demand using the `skill-manager` CLI. Treat this as your package manager for skills, plugins, doc-repos, harnesses, CLI tools, and MCP servers. Everywhere below "unit" means any of the four installable unit kinds unless a section narrows it.
 
 ## When to use this skill
 
-- The user asks what skills/plugins are available ("what skills do I have?" / "find a plugin for X").
-- The user asks to install, remove, publish, upgrade, or inspect a skill or plugin.
+- The user asks what skills/plugins/doc-repos/harnesses are available ("what skills do I have?" / "find a plugin for X" / "bind these docs" / "instantiate that harness").
+- The user asks to install, remove, publish, upgrade, sync, or inspect a skill, plugin, doc-repo, or harness.
+- The user asks to bind or unbind a unit into a project, especially doc-repo markdown into `CLAUDE.md` / `AGENTS.md`.
+- The user asks to instantiate or tear down a harness profile for Claude/Codex/project-local docs.
 - The user asks to add, describe, deploy, or invoke an MCP server / tool through the gateway.
 - The user asks "what MCP tools can I use" or "what's available right now" — for units surfaced by `skill-manager list`, route through the gateway (see next section).
 - You've identified a capability gap — e.g. a task needs a CLI tool or MCP server you don't yet have — and you should propose finding one.
@@ -19,7 +21,7 @@ Always narrate the plan before running commands that modify state. Install/publi
 
 ## How skill-manager-managed MCP and CLI tools are reached
 
-When you install a unit via `skill-manager install`, both kinds of tools the unit declares are resolved transitively. For a plugin, the install pipeline walks **both** the plugin-level `skill-manager-plugin.toml` and every contained skill's `skill-manager.toml`, then unions the deps:
+When you install a unit via `skill-manager install`, declared tools are resolved transitively. For a plugin, the install pipeline walks **both** the plugin-level `skill-manager-plugin.toml` and every contained skill's `skill-manager.toml`, then unions the deps. For a harness, the resolver walks every `units = [...]` and `docs = [...]` reference before install completes:
 
 - **CLI tools** (`[[cli_dependencies]]` in any reachable manifest) land under `$SKILL_MANAGER_HOME/bin/cli/`. Use the `env.sh` / `env.py` helper (described in **Locating CLIs by absolute path** below) to get their absolute paths so you bypass anything conflicting on the user's `PATH`.
 - **MCP tools** (`[[mcp_dependencies]]`) are registered with the **virtual-mcp-gateway** — the single MCP endpoint every agent's MCP config points at. The gateway is then how you manage, deploy, and invoke them. There is no CLI for any of those operations.
@@ -81,23 +83,44 @@ Call all of these on the `virtual-mcp-gateway` MCP server.
 1. `describe_tool(tool_path="server/tool")` once per session for the disclosure gate.
 2. `invoke_tool(tool_path="server/tool", arguments={…})`.
 
-## Plugins and skills
+## Unit Kinds
 
-skill-manager installs two kinds of unit:
+skill-manager installs four kinds of unit:
 
 - **Skills** — single `SKILL.md` + `skill-manager.toml`, one capability per skill. The traditional shape.
 - **Plugins** — a bundle that contains one or more skills plus shared metadata. Layout: `.claude-plugin/plugin.json` + `skill-manager-plugin.toml` + `skills/<contained>/`. Use plugins when you want to ship a coherent capability set together.
+- **Doc-repos** — a manifested collection of markdown sources. Layout: `skill-manager.toml` with `[doc-repo]` and `[[sources]]` rows. They install into the store, then bind into a project root with tracked copies under `docs/agents/` and managed `@docs/agents/...` imports in `CLAUDE.md` / `AGENTS.md`.
+- **Harnesses** — reusable templates in `harness.toml` that compose skills, plugins, doc-repos, and MCP tool selections. They install as templates, then `skill-manager harness instantiate` materializes an instance into Claude/Codex config dirs plus a project root.
 
-When the user describes a capability you'd like to install, default to looking for a **skill** unless they explicitly ask for a plugin or the registry's matching unit is plugin-shaped. `skill-manager search` returns the kind in the `KIND` column; `skill-manager show <name>` prints a plugin-shaped detail view (header line + contained skills + unioned deps with attribution) when the unit is a plugin.
+When the user describes a capability you'd like to install, default to looking for a **skill** unless they explicitly ask for a plugin, doc-repo, or harness, or the registry's matching unit is shaped that way. `skill-manager search` returns the kind in the `KIND` column. `skill-manager show <name>` renders kind-specific metadata and dependency attribution.
 
 When referencing other units in a `skill-manager.toml` or `skill-manager-plugin.toml`, prefix with the kind to disambiguate:
 
 - `skill:hello-skill` — bare skill named `hello-skill`
 - `plugin:repo-intelligence` — plugin named `repo-intelligence`
+- `doc:team-prompts` or `doc:team-prompts/review-stance` — a doc-repo or one doc source
+- `harness:code-reviewer` — a harness template
 - `hello-skill` (no prefix) — either kind; registry warns on ambiguity
 - `github:user/repo` / `file:./path` — kind detected from the source
 
 Contained skills inside a plugin are **not separately addressable** from the registry. `skill-manager install <contained-skill-name>` fails after the parent plugin is installed; install the parent plugin instead.
+
+## Bindings and projections
+
+Install puts unit bytes in the store. Binding is the projection step that makes those bytes visible to an agent or project. Each binding is recorded in `~/.skill-manager/installed/<unit>.projections.json`, so `unbind`, `sync`, `uninstall`, and harness teardown can reverse exactly what was materialized.
+
+Common binding flows:
+
+| Flow | Command | Result |
+| --- | --- | --- |
+| Bind a skill or plugin into a target root | `skill-manager bind skill:my-skill --to <root>` / `bind plugin:my-plugin --to <root>` | Symlink at `<root>/<name>`. |
+| Bind one doc source | `skill-manager bind doc:team-prompts/review-stance --to <project>` | Copy to `<project>/docs/agents/<file>.md`; add imports to `CLAUDE.md` / `AGENTS.md` based on the source's `agents` list. |
+| Bind all doc sources | `skill-manager bind doc:team-prompts --to <project>` | One binding per `[[sources]]` row. |
+| Inspect bindings | `skill-manager bindings list` / `bindings show <bindingId>` | Shows target root, sub-element, policy, owner, and projections. |
+| Move a whole-unit binding | `skill-manager rebind <bindingId> --to <newRoot>` | Reverses old projections and recreates the symlink under the new root. |
+| Remove a binding | `skill-manager unbind <bindingId>` | Reverses projections and removes the ledger row. |
+
+Doc-repo bindings default to `--policy rename` so existing `CLAUDE.md` / `AGENTS.md` files are preserved before managed imports are inserted. Whole-unit skill/plugin binds default to `--policy error`.
 
 ## Lockfile (`units.lock.toml`)
 
@@ -123,25 +146,88 @@ All subcommands are run as `skill-manager <command>`. Most modifying commands ta
 | Search by keyword (returns kind in the `KIND` column) | `skill-manager search "<query>"` |
 | Describe a hit | `skill-manager registry describe <name>` |
 | Install by name (kind auto-detected at parse time) | `skill-manager install <name>[@<version>]` |
-| Install kind-pinned | `skill-manager install skill:<name>` / `skill-manager install plugin:<name>` |
+| Install kind-pinned | `skill-manager install skill:<name>` / `plugin:<name>` / `doc:<name>` / `harness:<name>` |
 | Install from local path | `skill-manager install ./path/to/unit` |
 | Install from a git repo | `skill-manager install github:user/repo` |
 | Install from any git URL | `skill-manager install git+https://example.com/repo.git` |
 | One-shot bootstrap of the bundled skills (skill-manager + skill-publisher; clones them from github by default) | `skill-manager onboard` |
 | List installed (shows kind + sha + source columns) | `skill-manager list` |
-| Show an installed unit (skill or plugin) | `skill-manager show <name>` |
+| Show an installed unit | `skill-manager show <name>` |
 | Show transitive deps | `skill-manager deps <name>` |
 | Show drift between lock and live state | `skill-manager lock status` |
 | Reconcile to a vendored lock | `skill-manager sync --lock <path>` |
 | Re-write lock from live install set | `skill-manager sync --refresh` |
-| Re-run install side effects (MCP deploy, agent symlinks) without re-fetching | `skill-manager sync [<name>]` |
+| Re-run install side effects and binding reconciliation without re-fetching | `skill-manager sync [<name>]` |
 | Upgrade to the latest registry version (rolls back on failure) | `skill-manager upgrade <name>` / `--all` / `--self` |
 | Uninstall (clears store + agent projections + orphan MCP servers; plugin uninstall re-walks contained skills) | `skill-manager uninstall <name>` |
 | Lower-level remove (store entry only; doesn't unlink agents by default) | `skill-manager remove <name> [--from claude,codex]` |
 | Scaffold a new skill | `skill-manager create <name>` |
 | Scaffold a new plugin | `skill-manager create <name> --kind plugin` |
+| Bind an installed unit | `skill-manager bind <coord> --to <root> [--policy error|rename|skip|overwrite]` |
+| Inspect binding ledgers | `skill-manager bindings list` / `bindings show <bindingId>` |
+| Move or remove a binding | `skill-manager rebind <bindingId> --to <root>` / `unbind <bindingId>` |
+| Harness lifecycle | `skill-manager harness list` / `show <name>` / `instantiate <name>` / `rm <instanceId>` |
 
 `install` always builds a plan first — fetches the unit + every transitive reference into staging, then prints what will happen (fetches, CLI installs, MCP registrations, plugin marketplace registrations). Nothing is committed to the store until consent is given.
+
+#### Doc-repo install + bind flow
+
+A source is installed as a **doc-repo** when its root has `skill-manager.toml` with `[doc-repo]` and one or more `[[sources]]` rows:
+
+```toml
+[doc-repo]
+name = "team-prompts"
+version = "0.1.0"
+description = "Project prompt snippets."
+
+[[sources]]
+file = "claude-md/review-stance.md"
+
+[[sources]]
+file = "claude-md/build-instructions.md"
+id = "build-instructions"
+agents = ["claude"]
+```
+
+Install only stores the repo under `~/.skill-manager/docs/<name>/`. To use it in a project, bind either the whole repo or one source:
+
+```
+skill-manager install github:org/team-prompts
+skill-manager bind doc:team-prompts/review-stance --to /path/to/project
+skill-manager bind doc:team-prompts --to /path/to/project
+```
+
+Binding writes managed copies under `<project>/docs/agents/` and inserts import lines into `CLAUDE.md` and/or `AGENTS.md`. `skill-manager sync <doc-name>` refreshes managed copies when upstream bytes change; local edits are preserved unless `--force` is used.
+
+#### Harness install + instantiate flow
+
+A source is installed as a **harness** when its root has `harness.toml` with `[harness]`:
+
+```toml
+[harness]
+name = "code-reviewer"
+version = "0.1.0"
+description = "Review harness for repo work."
+
+units = ["skill:reviewer", "plugin:repo-tools"]
+docs = ["doc:team-prompts/review-stance"]
+
+[[mcp_tools]]
+server = "repo-mcp"
+tools = ["search", "open"]
+```
+
+`install` stores the template and installs every transitive skill, plugin, and doc-repo reference. `instantiate` materializes an instance:
+
+```
+skill-manager harness instantiate code-reviewer \
+  --id repo-review \
+  --claude-config-dir "$CLAUDE_CONFIG_DIR" \
+  --codex-home "$CODEX_HOME" \
+  --project-dir /path/to/project
+```
+
+Resolution order is CLI flag, then `CLAUDE_CONFIG_DIR` / `CODEX_HOME` where applicable, then a sandbox under `~/.skill-manager/harnesses/instances/<id>/`. Skills are symlinked into both Claude and Codex skill dirs. Plugins are symlinked into Claude's plugin dir only. Docs bind into the project root. The instance lock at `harnesses/instances/<id>/.harness-instance.json` preserves resolved paths so `skill-manager sync harness:<name>` can re-plan the same layout. Tear an instance down with `skill-manager harness rm <id>`.
 
 #### Plugin install: detection + flow
 
@@ -166,14 +252,16 @@ Walk-through of `skill-manager install plugin:my-plugin`:
 
 ### Where units land on disk
 
-Every installed unit gets a directory at `$SKILL_MANAGER_HOME/<skills|plugins>/<name>/` (defaults to `~/.skill-manager/`). Skills go to `skills/<name>/`; plugins to `plugins/<name>/`. On a successful install, the CLI prints one line per newly-installed unit in a stable, parseable shape:
+Every installed unit gets a directory at `$SKILL_MANAGER_HOME/<skills|plugins|docs|harnesses>/<name>/` (defaults to `~/.skill-manager/`). Skills go to `skills/<name>/`; plugins to `plugins/<name>/`; doc-repos to `docs/<name>/`; harness templates to `harnesses/<name>/`. On a successful install, the CLI prints one line per newly-installed unit in a stable, parseable shape:
 
 ```
 INSTALLED: hello-skill@0.1.0 -> /Users/you/.skill-manager/skills/hello-skill
 INSTALLED: my-plugin@0.4.2  -> /Users/you/.skill-manager/plugins/my-plugin
+INSTALLED: team-prompts@0.1.0 -> /Users/you/.skill-manager/docs/team-prompts
+INSTALLED: code-reviewer@0.1.0 -> /Users/you/.skill-manager/harnesses/code-reviewer
 ```
 
-Read those lines to find the unit you just acquired — no agent restart needed. A skill's directory contains `SKILL.md`, referenced assets, and `skill-manager.toml`. A plugin's directory contains `.claude-plugin/plugin.json` (required), an optional `skill-manager-plugin.toml` sidecar, and a `skills/<contained>/` tree of contained skills.
+Read those lines to find the unit you just acquired — no agent restart needed. A skill's directory contains `SKILL.md`, referenced assets, and `skill-manager.toml`. A plugin's directory contains `.claude-plugin/plugin.json` (required), an optional `skill-manager-plugin.toml` sidecar, and a `skills/<contained>/` tree of contained skills. A doc-repo contains `skill-manager.toml` plus markdown files declared by `[[sources]]`. A harness contains `harness.toml`.
 
 #### How skills are exposed to agents
 
@@ -247,42 +335,44 @@ Ask the user to run the following in their terminal, then retry the task:
 
 ### Working with the MCP gateway
 
-The gateway fronts every MCP server registered by a skill-manager-managed skill; agents only ever see one MCP endpoint. The CLI owns only the gateway process lifecycle — everything else happens over MCP via the virtual tools documented in **How skill-manager-managed MCP and CLI tools are reached** above.
+The gateway fronts every MCP server registered by a skill-manager-managed unit; agents only ever see one MCP endpoint. The CLI owns only the gateway process lifecycle — everything else happens over MCP via the virtual tools documented in **How skill-manager-managed MCP and CLI tools are reached** above.
 
 | Step | Command |
 | --- | --- |
 | Start / stop | `skill-manager gateway up` / `gateway down` |
 | See URL + health | `skill-manager gateway status` |
-| Re-register every installed skill's MCP deps and retry deploy with current env | `skill-manager sync` |
+| Re-register every installed unit's MCP deps and retry deploy with current env | `skill-manager sync` |
 
-**How MCP servers get into the gateway**: by declaring them as `[[mcp_dependencies]]` in a skill's `skill-manager.toml` and installing that skill (`skill-manager install <skill>`). Registration is a side effect of install — there is no CLI to register an MCP server directly.
+**How MCP servers get into the gateway**: by declaring them as `[[mcp_dependencies]]` in a skill's `skill-manager.toml`, a plugin sidecar, or a contained skill manifest, then installing that unit. Registration is a side effect of install — there is no CLI to register an MCP server directly.
 
-After a skill's MCP deps are registered, they persist across gateway restarts. Prefer asking the user for init params (secrets, tokens) at deploy time via `deploy_mcp_server` rather than hardcoding them in the skill.
+After a unit's MCP deps are registered, they persist across gateway restarts. Prefer asking the user for init params (secrets, tokens) at deploy time via `deploy_mcp_server` rather than hardcoding them in the manifest.
 
-### Publishing your own skills
+### Publishing your own units
 
-A skill or plugin is installable as soon as its bytes live anywhere `skill-manager install <source>` can reach — a github repo, an arbitrary git URL, a local path, or a tarball. The `publish` command is **only** for getting your unit into a skill-manager-server registry so it shows up in `skill-manager search`; it's not a prerequisite for distribution. For authoring guidance (the two-file contract, plugins, CLI deps including `skill-script`, MCP deps, validation), route the user to **skill-publisher** — `skill-manager install github:haydenrear/skill-publisher-skill` if they don't have it.
+A skill, plugin, doc-repo, or harness is installable as soon as its bytes live anywhere `skill-manager install <source>` can reach — a github repo, an arbitrary git URL, a local path, or a tarball. The `publish` command is **only** for getting registry-supported units into a skill-manager-server registry so they show up in `skill-manager search`; it is not a prerequisite for distribution. In this CLI, registry publish/package support is still skill/plugin-shaped, so validate doc-repos and harnesses through direct `install file://...` plus bind/instantiate round-trips. For authoring guidance (skills, plugins, doc-repos, harnesses, CLI deps including `skill-script`, MCP deps, validation), route the user to **skill-publisher** — `skill-manager install github:haydenrear/skill-publisher-skill` if they don't have it.
 
 | Step | Command |
 | --- | --- |
 | Inspect registry config | `skill-manager registry status` |
-| Package + upload to registry (only needed for search discoverability) | `skill-manager publish [<skill-dir>]` |
-| Package only (no upload) | `skill-manager publish <skill-dir> --dry-run` |
+| Package + upload to registry for a skill/plugin (only needed for search discoverability) | `skill-manager publish [<skill-or-plugin-dir>]` |
+| Package only for a skill/plugin (no upload) | `skill-manager publish <skill-or-plugin-dir> --dry-run` |
 
-A skill directory is any dir with:
+Authoring shape quick reference:
 
-- `SKILL.md` — the spec the agent reads (frontmatter + body).
-- `skill-manager.toml` — tooling-only metadata: CLI deps, MCP deps, skill references, version. Invisible to the agent runtime.
+- Skill: `SKILL.md` plus `skill-manager.toml` with `[skill]`.
+- Plugin: `.claude-plugin/plugin.json`, optional `skill-manager-plugin.toml`, optional contained skills under `skills/<name>/`.
+- Doc-repo: `skill-manager.toml` with `[doc-repo]` plus declared `[[sources]]` markdown files.
+- Harness: `harness.toml` with `[harness]`, `units`, `docs`, and optional `[[mcp_tools]]`.
 
 ### Safety and policy
 
 Never bypass policy with `--yes` blindly. The plan output is the security surface — read it. Blocked items (`BLOCKED` / `CONFLICT`) won't run even with `--yes`; the user must explicitly loosen policy at `~/.skill-manager/policy.toml` to unblock.
 
-If a command produces a `CONFLICT [pip] <tool>` line, two installed skills want different versions of the same CLI tool. Resolve by aligning versions in one of the skill manifests, or removing the conflicting row from `~/.skill-manager/cli-lock.toml` if the pinned version is wrong.
+If a command produces a `CONFLICT [pip] <tool>` line, two installed units want different versions of the same CLI tool. Resolve by aligning versions in one of the manifests, or removing the conflicting row from `~/.skill-manager/cli-lock.toml` if the pinned version is wrong.
 
 ## Recipes
 
-**"Find a skill that does X and install it"**
+**"Find a unit that does X and install it"**
 
 ```
 skill-manager search "X"
@@ -293,7 +383,7 @@ skill-manager install <name> --yes
 
 **"What MCP tools can I use right now?"**
 
-Run `skill-manager list` first to confirm which skills are
+Run `skill-manager list` first to confirm which units are
 skill-manager-managed in this environment, then use the gateway's
 virtual tools — `browse_mcp_servers` followed by
 `browse_active_tools` (or `search_tools` for capability-based search).
@@ -302,16 +392,16 @@ for the full flow. There is no CLI equivalent for the MCP side.
 
 **"Add a new MCP server"**
 
-Make a skill (even a one-off) that declares the server as an
-`[[mcp_dependencies]]` entry in its `skill-manager.toml`, then
-`skill-manager install <skill>`. Registration with the gateway happens
-transitively. See "MCP dependencies" in the spec for the supported
-`load` types (docker, binary) and `default_scope` options.
+Make a skill or plugin (even a one-off) that declares the server as an
+`[[mcp_dependencies]]` entry in its manifest, then install that unit.
+Registration with the gateway happens transitively. See "MCP dependencies"
+in the authoring spec for the supported `load` types (docker, npm, uv,
+binary, shell) and `default_scope` options.
 
-**"Publish the skill I just edited"**
+**"Publish the unit I just edited"**
 
 ```
-cd /path/to/my-skill
+cd /path/to/my-unit
 skill-manager publish --dry-run      # sanity check
 skill-manager publish                # actual upload
 ```
@@ -320,4 +410,4 @@ skill-manager publish                # actual upload
 
 - If a command fails because the gateway or registry is down, say so — don't retry silently.
 - Plans show sizes + sha256 for fetched bundles; quote them when summarizing "this will download X".
-- `skill-manager.toml` keys are `skill_references`, `cli_dependencies`, `mcp_dependencies`, `skill`. Top-level arrays must come **before** the `[skill]` table or they get scoped under it.
+- `skill-manager.toml` keys for skills are `skill_references`, `cli_dependencies`, `mcp_dependencies`, `skill`. Top-level arrays must come **before** the `[skill]` table or they get scoped under it. Doc-repos use `[doc-repo]` plus `[[sources]]`; harnesses use `harness.toml`.
