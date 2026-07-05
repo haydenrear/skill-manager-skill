@@ -1,3 +1,11 @@
+---
+skill-imports:
+  - unit: skill-publisher
+    path: references/coords-and-distribution.md
+    reason: Install-source and reference coords follow one rule (git coords only, no registry configured); stated once there.
+    section: coord-forms
+---
+
 # skill-manager workflows
 
 This reference captures agent decision flows. It intentionally avoids
@@ -88,7 +96,10 @@ id, related skill docs, next commands, and log locations.
 
 Check exact source forms with `skill-manager install --help`. Common
 sources include registry names, kind-pinned coords, GitHub shorthand,
-arbitrary git URLs, and local paths.
+arbitrary git URLs, and local paths. **In practice use git coords
+(`github:owner/repo`, `git+…`, `file:…`): no registry is configured, so
+registry-name and kind-pinned coords cannot resolve** — see the imported
+`coords-and-distribution.md` for the single statement of this rule.
 
 ## Bind project docs
 
