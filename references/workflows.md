@@ -4,6 +4,10 @@ skill-imports:
     path: references/coords-and-distribution.md
     reason: Install-source and reference coords follow one rule (git coords only, no registry configured); stated once there.
     section: coord-forms
+  - unit: skill-publisher
+    path: references/coords-and-distribution.md
+    reason: Canonical distribution default — push to a GitHub repo with a license and install from the git source, not from a file.
+    section: source-of-truth
 ---
 
 # skill-manager workflows
@@ -203,6 +207,13 @@ Use upgrade to advance to a registry-published version. Check
 Publishing is optional registry metadata/search discoverability.
 Installing from a GitHub repo, arbitrary git URL, or local path does not
 require publishing.
+
+Favor a durable git-backed install: create a GitHub repo with a
+`LICENSE`, push the unit, and install from `github:owner/repo`. A
+`file://` install is for local validation only; do not leave it as the
+published result unless the user explicitly asks for a local-only
+install. The default publishing model is authoritative in skill-publisher
+`references/coords-and-distribution.md`.
 
 Before publishing:
 
