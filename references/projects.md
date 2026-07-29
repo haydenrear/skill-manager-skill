@@ -271,11 +271,21 @@ skill-manager home close-out --home <worktree>/.skill-manager \
   work has to reach first** — the one it was cloned from, not `~/.skill-manager`.
   Get the pair wrong and the verdict is about the wrong two homes.
 - It **writes nothing** and is safe to run repeatedly.
-- Exit 0 means it has established there is nothing to lose. Non-zero names every
+- **Exit 0** means it has established there is nothing to lose.
+- **Exit 1** is the blocked verdict, and the only exit that prints blockers: every
   blocking unit, its status, and a **literal remedy command** per unit —
   `home sync` for a fast-forward, `home sync --merge` for a merge or a conflict
   (with the conflicted files listed), `unit publish` for a git checkout carrying
   unpushed work that a file copy cannot carry.
+- **Exit 2** (`NotAHomeException`) means the path presented as a home is not one.
+  Nothing was assessed and nothing is printed. This exit exists because the gate
+  used to answer `safe: true` for a `--home` that was the worktree **directory**
+  rather than its `.skill-manager` — and that directory is exactly what
+  `git worktree remove` takes.
+- **Exit 9** (`FrozenHomeException`) means the destination home's policy is
+  `frozen`, so the gate — a dry-run sync into it — was refused and **nothing was
+  attempted**. Branch on this separately in any teardown script: `9` ("refused,
+  nothing attempted") is not `1` ("this worktree still holds work").
 - A `LINKED` unit **blocks**. The gate cannot say whose bytes a symlink's target
   is — it may point inside the worktree or outside it — and "cannot tell" has to
   block rather than clear. Resolve the link, then re-run.
