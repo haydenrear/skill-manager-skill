@@ -297,9 +297,15 @@ Two remedies, not interchangeable:
 
 The unit name is not the repository name. `skill-manager list` shows `SOURCE
 git` and a short SHA; `skill-manager show <unit> --json` carries `source`,
-`sha` and `path` but **no** `origin`. The repository URL lives in
-`<home>/units.lock.toml` and in `<home>/installed/<unit>.json` (`origin`) —
-read one of those rather than guessing. `spec-double-compiler` is published
+`sha` and `path` but **no** `origin`.
+
+**Read `<home>/installed/<unit>.json`.** Its `origin` field is the reliable
+answer, alongside `gitRef` and the `gitHash` the store is actually at.
+`<home>/units.lock.toml` carries `origin` too — but not always. Measured
+2026-08-24: the operator's root home had it for 29 of 29 units, and a worktree
+home had it for 4 of 6, the two without it being exactly the units `project
+resolve` had installed. Prefer the per-unit record; treat a lock entry with no
+`origin` as a gap in the lock, not as a unit with no repository. `spec-double-compiler` is published
 from `tla-spec-dev`, `test-graph` from `test_graph_skill`, `deploy-helm` from
 `deploy-cdc`, and the `skt` plugin from `skill-publisher-skill`.
 
