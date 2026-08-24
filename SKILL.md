@@ -127,6 +127,14 @@ flows:
   runtime usage.
 - `references/skill-imports.md` - frontmatter `skill-imports` syntax,
   semantics, and validation.
+- **Derived artifacts** — `artifacts list`, `artifacts stale`, cold shims,
+  `skill-manager build <id>`, and what a clone inherits versus declares —
+  are **not** documented here. The contract is stated once, in the skt
+  plugin, at
+  `$SKILL_MANAGER_HOME/plugins/skt/skills/skt/references/derived-artifacts.md`.
+  Read it there rather than inferring it from this CLI's output or its
+  source; a `declared-only` artifact in a clone is a normal state, and the
+  last two agents to work that out from source got it wrong.
 - `scripts/env.sh` / `scripts/env.py` - resolve absolute paths for
   installed CLI dependencies and agent-visible skill paths.
 
