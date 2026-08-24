@@ -69,24 +69,20 @@ A Copy` in `references/projects.md`. A home cloned from one that never
 installed the bundled set holds none of it, and every import pointing at
 those units dangles there.
 
-Measured on this CLI's own repository, 2026-08-24: its project home, and
-a worktree home cloned from that, each held four skills and no plugins.
-The `spec-double-compiler` installed in both declares imports at
-`skill-manager: references/cli.md` and `skt: references/skills.md`;
-**neither target existed in either home**, and both existed in the
-operator's root home. An agent standing in those homes is told by a
-frontmatter edge that an authority exists, and cannot open it.
+Measured on this CLI's own repository, 2026-08-24, in the two homes the
+`skt` skill reports on: the `spec-double-compiler` installed in each
+declared imports at `skill-manager: references/cli.md` and `skt:
+references/skills.md`, and **neither target existed in either home**,
+though both existed in the operator's root home. An agent standing there
+is told by a frontmatter edge that an authority exists, and cannot open
+it — and nothing reports the dead edge (see Validation).
 
-Two consequences worth acting on:
-
-- Declaring an onboarding-bundled unit in a checkout's
-  `skill-project.toml` is not redundant. It is what makes the import
-  resolvable in that checkout's own home, and `project resolve` refuses
-  the whole resolve with "references missing unit" until an *imported*
-  unit is declared — unit `skill_references` are followed automatically,
-  markdown `skill-imports` are not.
-- A dangling import in an already-cloned home is not reported to the
-  reader. See the limit on validation below.
+So declaring an onboarding-bundled unit in a checkout's
+`skill-project.toml` is not redundant: it is what makes the import
+resolvable in that checkout's own home. `project resolve` refuses the
+whole resolve with "references missing unit" until an *imported* unit is
+declared — unit `skill_references` are followed automatically, markdown
+`skill-imports` are not.
 
 ## Validation
 
