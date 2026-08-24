@@ -257,6 +257,72 @@ A chain-only design would need the same improvement merged up twice and would
 still never reach a **sibling** project. If you improved a unit, `unit publish`
 is the one you owe.
 
+### What `unit publish` can publish, and what to do when it cannot
+
+`unit publish` publishes a unit **this home installed**. It has no other source
+for the bytes: it commits `<home>/skills/<name>/` or `<home>/plugins/<name>/`,
+which exists only because that home installed the unit. And a child home holds
+exactly what its parent held at clone time, so a worktree home cloned from a
+project home that never installed `skt` cannot publish `skt`.
+
+**The refusal does not say that.** Measured on a worktree home, 2026-08-24:
+
+```
+$ skill-manager unit publish skt --dry-run --ticket 247-his-20
+✗ skt: not a git checkout at <home>/skills/skt — reinstall the unit from a
+  git source, or materialize it into the child home with --checkout, to
+  publish from it
+$ echo $?
+1
+```
+
+A name that is not a unit at all produces the **same** message with the name
+substituted, so "not installed in this home" and "you typed it wrong" are
+indistinguishable from the output; and `--checkout`, the remedy it names, is
+not a flag `unit publish` accepts. Run `skill-manager list` before believing
+either reading.
+
+Two remedies, not interchangeable:
+
+- The unit *should* be here — declare it in the checkout's `skill-project.toml`
+  and run `skill-manager project resolve` against **this** home. That is the fix
+  when a home is simply missing a unit its own manifest already declares.
+- The unit should not be here, or the home must not change — publish by hand
+  exactly as `unit publish` would: clone the unit's repository, branch
+  `skill/<ticket>-<unit>` off its trunk, commit, push, open a pull request
+  against the trunk. Same branch name, same base, same PR shape, so the result
+  is indistinguishable downstream from the command's own.
+
+### Finding a unit's repository: no command prints it
+
+The unit name is not the repository name. `skill-manager list` shows `SOURCE
+git` and a short SHA; `skill-manager show <unit> --json` carries `source`,
+`sha` and `path` but **no** `origin`. The repository URL lives in
+`<home>/units.lock.toml` and in `<home>/installed/<unit>.json` (`origin`) —
+read one of those rather than guessing. `spec-double-compiler` is published
+from `tla-spec-dev`, `test-graph` from `test_graph_skill`, `deploy-helm` from
+`deploy-cdc`, and the `skt` plugin from `skill-publisher-skill`.
+
+For a **plugin**, the unit is the plugin, so `unit publish` lands on the
+plugin's repository and not on the repository of a skill contained in it.
+
+### At the worktree tier, the two legs of `skt publish` are decided separately
+
+`skt publish` is `home sync` one tier up, then `unit publish`. From a worktree
+home the first leg writes the **project** home. A ticket brief that forbids a
+ticket agent from writing the project home — the normal rule inside an epic,
+because that home is one shared destination several tickets would race for —
+forbids that leg, and running `skt publish` anyway violates it before the
+publish leg is reached.
+
+The two legs answer different questions (the table above), so this is not a
+blocked path, it is a split one: run `skill-manager unit publish` on its own,
+and say in the pull request that the edit has **not** been reconciled into the
+project home and who owns doing it. Reporting it is the part that cannot be
+skipped — an unreconciled worktree home is exactly what `home close-out`
+refuses over, and whoever runs the teardown needs to know the answer is
+"published, deliberately not synced" rather than "forgotten".
+
 ## Discarding A Child Home: `home close-out`
 
 Removing a worktree deletes its home without asking, and succeeds exactly as
@@ -289,6 +355,16 @@ skill-manager home close-out --home <worktree>/.skill-manager \
 - A `LINKED` unit **blocks**. The gate cannot say whose bytes a symlink's target
   is — it may point inside the worktree or outside it — and "cannot tell" has to
   block rather than clear. Resolve the link, then re-run.
+- A **git-backed** unit (a store copy carrying its own `.git`) is judged by git
+  before any record: a worktree home whose working tree is clean and whose every
+  ref the project home already reaches holds nothing — including a home that is
+  merely *behind* because the project home pulled a newer upstream since the
+  worktree was cloned. `.git` is one thing in the verdict, never a list of index
+  and reflog files; a history that neither side contains is reported as the
+  single conflict entry `.git (history)`, and its detail names the fix — bring
+  the project home up to date (`skill-manager sync <unit>` there) when the
+  worktree only pulled further, `unit publish` when the worktree committed
+  something of its own.
 - `--json` gives `.blockers[]` with `unit`, `status`, `conflicts[]` and `remedy`.
 
 There is **no `--force` on this command**, deliberately: the CLI owns the verdict.
@@ -334,11 +410,35 @@ that is not one yet. Without `--init` they refuse — a mistyped path should not
 home scaffolded at it.
 
 A cloned home and a `project resolve` child home both want the path
-`<project>/.skill-manager`, and they are not the same thing. Resolving a root
-against that root's own home makes the home its own child: it isolates nothing,
-because there is nothing to be isolated from. `project resolve` refuses that layout
-unless you pass `--allow-same-home`. Use the clone for a checkout an agent works
-in; use `project resolve` when the parent home lives somewhere else.
+`<project>/.skill-manager`, and they are not the same thing. Use the clone for a
+checkout an agent works in; use `project resolve` when the parent home lives
+somewhere else.
+
+Resolving a checkout against that checkout's own home is the **per-checkout
+layout**, not an error: units resolve in place instead of being copied into a
+separate home, and the child-home record names this home as its own parent.
+`project resolve` says so and proceeds. `--allow-same-home` is still accepted
+and is no longer consulted; a page telling you to pass it is out of date.
+
+### One symptom worth recognising: a `skill-manager` that refuses to run
+
+```
+skill-manager: refusing to run against a home you did not name.
+```
+
+Exit **79**. The pin at `<home>/bin/cli/skill-manager` binds *that* home; when
+`SKILL_MANAGER_HOME` names a different one, the pin refuses rather than
+silently rebinding to its own. So 79 is not a broken install — it is the CLI
+you invoked and the `SKILL_MANAGER_HOME` you exported disagreeing about which
+home the command is for, said out loud instead of resolved by guess.
+
+Name the CLI you meant: export `SKILL_MANAGER_CLI` at a real launcher, or
+invoke the pin belonging to the home you are actually targeting. Never point
+`SKILL_MANAGER_CLI` at a home's `bin/cli/skill-manager` shim — the shim
+expands that same variable, so it re-execs itself forever. It surfaces most
+often through a wrapper script that resolves its CLI off `PATH` and then runs
+it under a `SKILL_MANAGER_HOME` you set, which is how the same command can
+have worked yesterday and refuse today.
 
 ## Cleanup
 

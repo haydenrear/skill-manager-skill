@@ -118,6 +118,10 @@ flows:
   each is a copy, `[[vendored]]` declarations, `home sync` (edit → the tier
   above), `unit publish` (edit → the unit's own repo), `home close-out` (refuse
   to discard a home that still holds work), and the rest of the `home` family.
+  Go there for these symptoms too: *"publish says my unit is not a git
+  checkout"*; *"which GitHub repository does this unit publish to?"*; *"my
+  brief forbids writing the project home, so can I still publish?"*; *"a
+  `skill-manager` on my `PATH` refused to run instead of running"*.
 - `references/virtual-mcp-gateway.md` - the gateway architecture,
   virtual tool surface, deployment scopes, disclosure gate, and MCP
   troubleshooting.
