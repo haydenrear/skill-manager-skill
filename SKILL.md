@@ -132,9 +132,12 @@ flows:
   are **not** documented here. The contract is stated once, in the skt
   plugin, at
   `${SKILL_MANAGER_HOME:-$HOME/.skill-manager}/plugins/skt/skills/skt/references/derived-artifacts.md`
-  (absent in a home that does not have the skt plugin installed). Read it there
-  rather than inferring it from this CLI's output or its source; the last two
-  agents to work it out from source got it wrong, in opposite directions.
+  (absent in a home that does not have the skt plugin installed — then read
+  `skills/skt/references/derived-artifacts.md` in
+  `github.com/haydenrear/skill-publisher-skill`, or install it with
+  `skill-manager install github:haydenrear/skill-publisher-skill`). Read it
+  there rather than inferring it from this CLI's output or its source; the last
+  two agents to work it out from source got it wrong, in opposite directions.
 - `scripts/env.sh` / `scripts/env.py` - resolve absolute paths for
   installed CLI dependencies and agent-visible skill paths.
 
